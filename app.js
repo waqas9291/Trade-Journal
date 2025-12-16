@@ -1,4 +1,4 @@
-/* TZ Journal Pro Logic V6 - Syntax Safe */
+/* TZ Journal Pro Logic V7 - Syntax Fixed */
 const APP_KEY = 'tz_pro_v1';
 const PREFS_KEY = 'tz_prefs_v1';
 
@@ -30,10 +30,10 @@ function loadData() {
     const loaded = JSON.parse(d);
     // Backward compatibility check
     if (loaded.accounts && typeof loaded.accounts[0] === 'string') {
-      loaded.accounts = loaded.accounts.map(function(name, i) {
-        return { id: 'acc_'+i, name: name, type: 'Real', initial: 0, balance: 0 };
-      });
-      loaded.trades.forEach(function(t) {
+      loaded.accounts = loaded.accounts.map((name, i) => ({
+        id: `acc_${i}`, name: name, type: 'Real', initial: 0, balance: 0
+      }));
+      loaded.trades.forEach(t => {
         const found = loaded.accounts.find(a => a.name === t.account);
         if (found) t.account = found.id; 
       });
@@ -43,9 +43,7 @@ function loadData() {
   
   if (p) prefs = JSON.parse(p);
   
-  // Ensure we have at least one account
   if (state.accounts.length > 0) {
-      // Check if currentAccId is valid
       const exists = state.accounts.find(a => a.id === currentAccId);
       if (!exists) currentAccId = state.accounts[0].id;
   } else {
@@ -64,29 +62,22 @@ function getAccountData() {
   const trades = state.trades.filter(t => t.account === currentAccId);
   const transfers = (state.transfers || []).filter(t => t.accountId === currentAccId);
   const account = state.accounts.find(a => a.id === currentAccId) || state.accounts[0];
-  return { trades: trades, transfers: transfers, account: account };
+  return { trades, transfers, account };
 }
 
 function getFinancials() {
-  const data = getAccountData();
-  let netPnL = data.trades.reduce((sum, t) => sum + t.pnl, 0);
-  let totalDeposits = data.transfers.filter(t => t.type === 'Deposit').reduce((s, t) => s + t.amount, 0);
-  let totalWithdrawals = data.transfers.filter(t => t.type === 'Withdrawal').reduce((s, t) => s + t.amount, 0);
+  const { trades, transfers, account } = getAccountData();
+  let netPnL = trades.reduce((sum, t) => sum + t.pnl, 0);
+  let totalDeposits = transfers.filter(t => t.type === 'Deposit').reduce((s, t) => s + t.amount, 0);
+  let totalWithdrawals = transfers.filter(t => t.type === 'Withdrawal').reduce((s, t) => s + t.amount, 0);
   
-  let currentEquity = (data.account.initial || 0) + netPnL + totalDeposits - totalWithdrawals;
+  let currentEquity = (account.initial || 0) + netPnL + totalDeposits - totalWithdrawals;
   let growth = 0;
-  if (data.account.initial > 0) {
-      growth = ((currentEquity - data.account.initial) / data.account.initial) * 100;
+  if (account.initial > 0) {
+      growth = ((currentEquity - account.initial) / account.initial) * 100;
   }
   
-  return { 
-      netPnL: netPnL, 
-      currentEquity: currentEquity, 
-      growth: growth, 
-      initial: data.account.initial, 
-      type: data.account.type, 
-      trades: data.trades 
-  };
+  return { netPnL, currentEquity, growth, initial: account.initial, type: account.type, trades };
 }
 
 /* --- UI RENDERING --- */
@@ -104,19 +95,19 @@ function renderDashboard() {
   document.getElementById('dashBalance').innerText = fmtMoney(data.currentEquity);
   
   const growthEl = document.getElementById('dashGrowth');
-  growthEl.innerText = data.growth.toFixed(2) + '%';
-  growthEl.className = 'value ' + (data.growth >= 0 ? 'text-green' : 'text-red');
+  growthEl.innerText = `${data.growth.toFixed(2)}%`;
+  growthEl.className = `value ${data.growth >= 0 ? 'text-green' : 'text-red'}`;
   
   document.getElementById('dashInitial').innerText = fmtMoney(data.initial);
   document.getElementById('dashType').innerText = data.type;
   
   const netEl = document.getElementById('dashNet');
   netEl.innerText = fmtMoney(data.netPnL);
-  netEl.className = 'value ' + (data.netPnL >= 0 ? 'text-green' : 'text-red');
+  netEl.className = `value ${data.netPnL >= 0 ? 'text-green' : 'text-red'}`;
 
   let wins = data.trades.filter(t => t.pnl > 0).length;
   let wr = data.trades.length ? Math.round((wins / data.trades.length) * 100) : 0;
-  document.getElementById('dashWR').innerText = wr + '%';
+  document.getElementById('dashWR').innerText = `${wr}%`;
 
   // Chart Logic
   const sorted = [...data.trades].sort((a,b) => new Date(a.date) - new Date(b.date));
@@ -175,17 +166,17 @@ function renderCalendar() {
       grid.appendChild(document.createElement('div'));
   }
 
-  const data = getAccountData();
+  const { trades } = getAccountData();
   let monthPnL = 0;
   let monthTrades = 0;
 
   for(let i=1; i<=daysInMonth; i++) {
     const dateStr = currentCalDate.date(i).format('YYYY-MM-DD');
-    const dayTrades = data.trades.filter(t => t.date.startsWith(dateStr));
+    const dayTrades = trades.filter(t => t.date.startsWith(dateStr));
     
     const cell = document.createElement('div');
     cell.className = 'cal-day';
-    cell.innerHTML = '<div class="cal-date-label">' + i + '</div>';
+    cell.innerHTML = `<div class="cal-date-label">${i}</div>`;
     
     if(dayTrades.length > 0) {
         // Group by Symbol
@@ -207,20 +198,19 @@ function renderCalendar() {
         // Render Instrument Rows
         Object.keys(grouped).forEach(sym => {
             const pnl = grouped[sym];
+            const pnlClass = pnl >= 0 ? 'text-green' : 'text-red';
             const row = document.createElement('div');
             row.className = 'cal-instrument-row';
-            
-            const pnlClass = pnl >= 0 ? 'text-green' : 'text-red';
-            const pnlStr = fmtMoneyCompact(pnl);
-            
-            row.innerHTML = '<span class="cal-instrument-name">' + sym + '</span>' +
-                            '<span class="cal-instrument-pnl ' + pnlClass + '">' + pnlStr + '</span>';
+            row.innerHTML = `
+              <span class="cal-instrument-name">${sym}</span>
+              <span class="cal-instrument-pnl ${pnlClass}">${fmtMoneyCompact(pnl)}</span>
+            `;
             cell.appendChild(row);
         });
         
         cell.style.cursor = 'pointer';
-        cell.onclick = function() {
-            alert('Date: ' + dateStr + '\nDaily Total: ' + fmtMoney(dayTotal) + '\nTrades: ' + dayTrades.length);
+        cell.onclick = () => {
+            alert(`Date: ${dateStr}\nDaily Total: ${fmtMoney(dayTotal)}\nTrades: ${dayTrades.length}`);
         };
     }
     grid.appendChild(cell);
@@ -236,9 +226,9 @@ function renderLog() {
   const tbody = document.getElementById('tradeListBody');
   tbody.innerHTML = '';
   const search = document.getElementById('searchTrade').value.toLowerCase();
-  const data = getAccountData();
+  const { trades } = getAccountData();
   
-  const sorted = data.trades.sort((a,b) => new Date(b.date) - new Date(a.date));
+  const sorted = [...trades].sort((a,b) => new Date(b.date) - new Date(a.date));
 
   sorted.forEach(t => {
     if(search && !t.symbol.toLowerCase().includes(search)) return;
@@ -247,10 +237,12 @@ function renderLog() {
     const dateDisplay = dayjs(t.date).format('MM/DD');
     const pnlClass = t.pnl >= 0 ? 'text-green' : 'text-red';
     
-    tr.innerHTML = '<td>' + dateDisplay + '</td>' +
-                   '<td><b>' + t.symbol + '</b><br><span style="font-size:0.7em;color:var(--text-muted)">' + t.side + '</span></td>' +
-                   '<td class="' + pnlClass + '"><b>' + fmtMoney(t.pnl) + '</b></td>' +
-                   '<td><button class="btn ghost small" onclick="openModal(\'' + t.id + '\')"><i class="bi bi-eye"></i></button></td>';
+    tr.innerHTML = `
+      <td>${dateDisplay}</td>
+      <td><b>${t.symbol}</b><br><span style="font-size:0.7em;color:var(--text-muted)">${t.side}</span></td>
+      <td class="${pnlClass}"><b>${fmtMoney(t.pnl)}</b></td>
+      <td><button class="btn ghost small" onclick="openModal('${t.id}')"><i class="bi bi-eye"></i></button></td>
+    `;
     tbody.appendChild(tr);
   });
 }
@@ -263,12 +255,12 @@ function renderSettings() {
     let btnHtml = '';
     
     if (acc.id !== currentAccId) {
-        btnHtml = '<button onclick="delAcc(\'' + acc.id + '\')" class="btn danger small">X</button>';
+        btnHtml = `<button onclick="delAcc('${acc.id}')" class="btn danger small">X</button>`;
     } else {
         btnHtml = '<small>Active</small>';
     }
     
-    li.innerHTML = '<div><b>' + acc.name + '</b> <small class="text-muted">(' + acc.type + ')</small></div>' + btnHtml;
+    li.innerHTML = `<div><b>${acc.name}</b> <small class="text-muted">(${acc.type})</small></div>${btnHtml}`;
     list.appendChild(li);
   });
 }
@@ -292,27 +284,26 @@ function updateAccSelects() {
 
 /* --- ACTIONS --- */
 window.openModal = function(id) {
-    // Find trade safely (comparing as strings to be safe)
     const t = state.trades.find(x => String(x.id) === String(id));
     if(!t) return;
     
-    document.getElementById('mSymbol').innerText = t.symbol + ' (' + t.side + ')';
+    document.getElementById('mSymbol').innerText = `${t.symbol} (${t.side})`;
     document.getElementById('mDate').innerText = dayjs(t.date).format('YYYY-MM-DD HH:mm');
     
     const pnlClass = t.pnl >= 0 ? 'text-green' : 'text-red';
-    document.getElementById('mStats').innerHTML = 
-        '<div style="text-align:center"><span>P&L</span><br><b class="' + pnlClass + '">' + fmtMoney(t.pnl) + '</b></div>' +
-        '<div style="text-align:center"><span>Status</span><br><b>' + t.status + '</b></div>';
-        
+    document.getElementById('mStats').innerHTML = `
+        <div style="text-align:center"><span>P&L</span><br><b class="${pnlClass}">${fmtMoney(t.pnl)}</b></div>
+        <div style="text-align:center"><span>Status</span><br><b>${t.status}</b></div>
+    `;
     document.getElementById('mNotes').innerText = t.notes || 'No notes.';
     
     const imgCon = document.getElementById('mImgContainer');
     imgCon.innerHTML = '';
     if(t.img) {
-        imgCon.innerHTML = '<a href="' + t.img + '" target="_blank"><img src="' + t.img + '"></a>';
+        imgCon.innerHTML = `<a href="${t.img}" target="_blank"><img src="${t.img}"></a>`;
     }
     
-    document.getElementById('btnDeleteTrade').onclick = function() {
+    document.getElementById('btnDeleteTrade').onclick = () => {
         if(confirm('Delete?')) {
             state.trades = state.trades.filter(x => String(x.id) !== String(id));
             saveData(); 
@@ -337,7 +328,6 @@ window.delAcc = function(id) {
 
 /* --- LISTENERS --- */
 function setupListeners() {
-  // Tabs
   document.querySelectorAll('.nav-tabs button').forEach(btn => {
     btn.addEventListener('click', e => {
       document.querySelectorAll('.nav-tabs button').forEach(b => b.classList.remove('active'));
@@ -360,7 +350,7 @@ function setupListeners() {
     const bal = parseFloat(document.getElementById('newAccBal').value) || 0;
     
     if(name) {
-        const newId = 'acc_' + Date.now();
+        const newId = `acc_${Date.now()}`;
         state.accounts.push({ id: newId, name: name, type: type, initial: bal, balance: bal });
         currentAccId = newId;
         saveData(); renderAll();
@@ -388,35 +378,38 @@ function setupListeners() {
       }
   };
 
-  // Trade Form
-  document.getElementById('tradeForm').onsubmit = async (e) => {
+  // Trade Form - Using .then() for safer parsing
+  document.getElementById('tradeForm').onsubmit = (e) => {
     e.preventDefault();
     const pnl = parseFloat(document.getElementById('tPnL').value);
     const dateVal = document.getElementById('tDate').value;
     let imgData = document.getElementById('tImgLink').value; 
     const fileInput = document.getElementById('tImgFile');
     
-    if (fileInput.files[0]) {
-        imgData = await readFileAsBase64(fileInput.files[0]);
-    }
+    const processTrade = (finalImg) => {
+        state.trades.push({
+          id: Date.now(),
+          account: document.getElementById('formAccountSelect').value,
+          date: dateVal,
+          symbol: document.getElementById('tSymbol').value,
+          side: document.getElementById('tSide').value,
+          pnl: pnl,
+          status: pnl >= 0 ? 'Win' : 'Loss',
+          notes: document.getElementById('tNotes').value,
+          img: finalImg
+        });
+        saveData(); 
+        renderAll(); 
+        e.target.reset();
+        document.getElementById('tDate').value = dateVal; 
+        showToast('Trade Saved');
+    };
 
-    state.trades.push({
-      id: Date.now(),
-      account: document.getElementById('formAccountSelect').value,
-      date: dateVal,
-      symbol: document.getElementById('tSymbol').value,
-      side: document.getElementById('tSide').value,
-      pnl: pnl,
-      status: pnl >= 0 ? 'Win' : 'Loss',
-      notes: document.getElementById('tNotes').value,
-      img: imgData
-    });
-    
-    saveData(); 
-    renderAll(); 
-    e.target.reset();
-    document.getElementById('tDate').value = dateVal; 
-    showToast('Trade Saved');
+    if (fileInput.files[0]) {
+        readFileAsBase64(fileInput.files[0]).then(res => processTrade(res));
+    } else {
+        processTrade(imgData);
+    }
   };
 
   // CSV
@@ -432,7 +425,6 @@ function setupListeners() {
               res.data.forEach(r => {
                  if(!r['Profit']) return;
                  let net = parseFloat(r['Profit']) + (parseFloat(r['Commission'])||0) + (parseFloat(r['Swap'])||0);
-                 
                  let side = 'Long';
                  if((r['Type']||'').toLowerCase().includes('sell')) side = 'Short';
 
@@ -451,7 +443,7 @@ function setupListeners() {
               });
               saveData(); 
               renderAll(); 
-              showToast('Imported ' + c + ' trades');
+              showToast(`Imported ${c} trades`);
           }
       });
   };
